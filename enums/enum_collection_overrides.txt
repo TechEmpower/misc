@@ -1,0 +1,282 @@
+//
+// This file contains a copy of some code that we intend to
+// publish in an article on our company blog.  If you've
+// stumbled upon this file without having read that article,
+// then this file probably won't make sense.  Sorry about
+// that.
+//
+// The reason we're putting a copy of that code here is so
+// that we can release that code under a liberal license.
+// Trying to embed the license in the blog article itself
+// felt awkward; it was difficult to clarify what content
+// within the article was and was not covered by the
+// license.
+//
+// See the LICENSE file at the root of this repository.
+//
+
+// ----------------------------------------
+// For RegularEnumSet:
+
+@Override
+public void forEach(Consumer<? super E> action) {
+  each(elements, action);
+}
+
+@SuppressWarnings("unchecked")
+E first(long es) {
+  return (E) universe[Long.numberOfTrailingZeros(es)];
+}
+
+long rest(long es) {
+  return es - Long.lowestOneBit(es);
+}
+
+void each(long es, Consumer<? super E> action) {
+  if (es == 0) {
+    Objects.requireNonNull(action);
+    return;
+  }
+  do {
+    action.accept(first(es));
+    es = rest(es);
+  } while (es != 0);
+}
+
+@Override
+public Spliterator<E> spliterator() {
+  return new EnumSetSpliterator(elements);
+}
+
+private final class EnumSetSpliterator implements Spliterator<E> {
+  private long unseen;
+
+  EnumSetSpliterator(long es) {
+    unseen = es;
+  }
+
+  @Override
+  public int characteristics() {
+    return Spliterator.ORDERED |
+        Spliterator.SORTED |
+        Spliterator.NONNULL |
+        Spliterator.DISTINCT |
+        Spliterator.SIZED |
+        Spliterator.SUBSIZED;
+  }
+
+  @Override
+  public long estimateSize() {
+    return Long.bitCount(unseen);
+  }
+
+  @Override
+  public void forEachRemaining(Consumer<? super E> action) {
+    each(unseen, action);
+    unseen = 0;
+  }
+
+  @Override
+  public Comparator<? super E> getComparator() {
+    return null;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super E> action) {
+    long es = unseen;
+    if (es == 0) {
+      Objects.requireNonNull(action);
+      return false;
+    }
+    action.accept(first(es));
+    unseen = rest(es);
+    return true;
+  }
+
+  @Override
+  public Spliterator<E> trySplit() {
+    long es = unseen;
+    if (es == 0)
+      return null;
+
+    int lo = Long.numberOfTrailingZeros(es);
+    int hi = Long.SIZE - Long.numberOfLeadingZeros(es);
+    if (lo == hi - 1)
+      return null;
+
+    int mid = (lo + hi) >>> 1;
+    long headSet = es & ((1L << mid) - 1);
+    unseen = es & ~headSet;
+    return new EnumSetSpliterator(headSet);
+  }
+}
+
+// ----------------------------------------
+// For RegularEnumSet.EnumSetIterator:
+
+@Override
+public void forEachRemaining(Consumer<? super E> action) {
+  each(unseen, action);
+  unseen = 0;
+  lastReturned = 0;
+}
+
+// ----------------------------------------
+// For JumboEnumSet:
+
+@Override
+public void forEach(Consumer<? super E> action) {
+  each(elements[0], 0, action);
+}
+
+void each(long es, int i, Consumer<? super E> action) {
+  Objects.requireNonNull(action);
+  for (;;) {
+    while (es == 0) {
+      if (++i == elements.length)
+        return;
+      es = elements[i];
+    }
+    long next = Long.lowestOneBit(es);
+    es -= next;
+    @SuppressWarnings("unchecked")
+    E e = (E) universe[(i << 6) + Long.numberOfTrailingZeros(next)];
+    action.accept(e);
+  }
+}
+
+@Override
+public Spliterator<E> spliterator() {
+  return Spliterators.spliterator(
+      this,
+      Spliterator.ORDERED |
+          Spliterator.SORTED |
+          Spliterator.NONNULL |
+          Spliterator.DISTINCT);
+}
+
+// ----------------------------------------
+// For JumboEnumSet.EnumSetIterator:
+
+@Override
+public void forEachRemaining(Consumer<? super E> action) {
+  each(unseen, index, action);
+  unseen = 0;
+  unseenIndex = elements.length;
+  lastReturned = 0;
+}
+
+// ----------------------------------------
+// For EnumMap:
+
+@Override
+public void forEach(BiConsumer<? super K, ? super V> action) {
+  Objects.requireNonNull(action);
+  for (int i = 0; i < vals.length; i++) {
+    Object o = vals[i];
+    if (o != null)
+      action.accept(keyUniverse[i], unmaskNull(o));
+  }
+}
+
+void forEachKey(int i, Consumer<? super K> action) {
+  Objects.requireNonNull(action);
+  for (; i < vals.length; i++)
+    if (vals[i] != null)
+      action.accept(keyUniverse[i]);
+}
+
+void forEachValue(int i, Consumer<? super V> action) {
+  Objects.requireNonNull(action);
+  for (; i < vals.length; i++) {
+    Object o = vals[i];
+    if (o != null)
+      action.accept(unmaskNull(o));
+  }
+}
+
+void forEachEntry(int i, Consumer<? super Map.Entry<K, V>> action) {
+  for (; i < vals.length; i++)
+    if (vals[i] != null)
+      action.accept(new Entry(i)); // Entry is currently a child of
+                                   // EntrySetIterator and it needs
+                                   // to be moved up one level.
+}
+
+// ----------------------------------------
+// For EnumMap.KeySet:
+
+@Override
+public void forEach(Consumer<? super K> action) {
+  forEachKey(0, action);
+}
+
+@Override
+public Spliterator<K> spliterator() {
+  return Spliterators.spliterator(
+      this,
+      Spliterator.ORDERED |
+          Spliterator.SORTED |
+          Spliterator.NONNULL |
+          Spliterator.DISTINCT);
+}
+
+// ----------------------------------------
+// For EnumMap.Values:
+
+@Override
+public void forEach(Consumer<? super V> action) {
+  forEachValue(0, action);
+}
+
+@Override
+public Spliterator<V> spliterator() {
+  return Spliterators.spliterator(this, Spliterator.ORDERED);
+}
+
+// ----------------------------------------
+// For EnumMap.EntrySet:
+
+@Override
+public void forEach(Consumer<? super Map.Entry<K, V>> action) {
+  forEachEntry(0, action);
+}
+
+@Override
+public Spliterator<Map.Entry<K, V>> spliterator() {
+  return Spliterators.spliterator(
+      this,
+      Spliterator.ORDERED |
+          Spliterator.NONNULL |
+          Spliterator.DISTINCT);
+}
+
+// ----------------------------------------
+// For EnumMap.KeyIterator:
+
+@Override
+public void forEachRemaining(Consumer<? super K> action) {
+  forEachKey(index, action);
+  index = vals.length;
+  lastReturnedIndex = -1;
+}
+
+// ----------------------------------------
+// For EnumMap.ValueIterator:
+
+@Override
+public void forEachRemaining(Consumer<? super V> action) {
+  forEachValue(index, action);
+  index = vals.length;
+  lastReturnedIndex = -1;
+}
+
+// ----------------------------------------
+// For EnumMap.EntryIterator:
+
+@Override
+public void forEachRemaining(Consumer<? super Map.Entry<K, V>> action) {
+  forEachEntry(index, action);
+  index = vals.length;
+  lastReturnedIndex = -1;
+}
